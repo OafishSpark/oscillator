@@ -136,23 +136,69 @@ class HarmonicOscillator:
         return psi
 
 
-    def fock_evolution(self, t):
-        self.current_time += t
-        # Инициализируем волновую функцию нулями
-        psi = np.zeros_like(self.x_grid, dtype=complex)
-          
-        # Суммируем вклады всех состояний
-        for n, cn in enumerate(self.coefficients):
-            # Получаем волновую функцию n-го состояния
-            psi_n = stationary_state_wavefunction(n, self.x_grid)
-            # Добавляем вклад этого состояния
-            psi += cn * psi_n * np.exp(-1j * self.frequency * (n + 1/2) * self.current_time)
-            self.coefficients[n] = cn * np.exp(-1j * self.frequency * (n + 1/2) * self.current_time)
+def euler_evolution(self, dt):
+        self.current_time += dt
+        dx = self.x_grid[1] - self.x_grid[0]
+        dpsi_dx = np.gradient(self.wave_function, dx)
+        dpsi_dx2 = np.gradient(dpsi_dx, dx)
+        self.wave_function += -1j / 2 * (dpsi_dx2 + self.wave_function * self.x_grid * self.x_grid * self.frequency**2) * dt
+        self.compute_states_coefficients()
+
+    def evolution(self, dt, method='rk4'):
+        if method == 'rk4':
+            # Метод Рунге-Кутты 4 порядка
+            k1 = self._rhs(self.wave_function, dt)
+            k2 = self._rhs(self.wave_function + 0.5*dt*k1, dt)
+            k3 = self._rhs(self.wave_function + 0.5*dt*k2, dt)
+            k4 = self._rhs(self.wave_function + dt*k3, dt)
+            self.wave_function += (dt/6.0) * (k1 + 2*k2 + 2*k3 + k4)
+            
+        elif method == 'crank-nicolson':
+            # Упрощенная версия метода Кранка-Николсон (для гармонического осциллятора)
+            dx = self.x_grid[1] - self.x_grid[0]
+            N = len(self.x_grid)
+            V = 0.5 * self.frequency**2 * self.x_grid**2
+            
+            # Оператор кинетической энергии (лапласиан)
+            laplacian = np.zeros((N, N))
+            np.fill_diagonal(laplacian, -2/dx**2)
+            np.fill_diagonal(laplacian[1:], 1/dx**2)
+            np.fill_diagonal(laplacian[:,1:], 1/dx**2)
+            
+            # Гамильтониан
+            H = -0.5 * laplacian + np.diag(V)
+            
+            # Матрицы для Кранка-Николсон
+            I = np.eye(N)
+            A = I + 0.5j * dt * H
+            B = I - 0.5j * dt * H
+            
+            # Решение системы линейных уравнений
+            self.wave_function = np.linalg.solve(A, B @ self.wave_function)
         
-        # Обновляем состояние класса
-        self.wave_function = psi
+        self.current_time += dt
+        self.compute_states_coefficients()
+
+    def _rhs(self, psi, dt):
+        dx = self.x_grid[1] - self.x_grid[0]
+        dpsi_dx = np.gradient(psi, dx)
+        dpsi_dx2 = np.gradient(dpsi_dx, dx)
+        V = 0.5 * self.frequency**2 * self.x_grid**2
+        return -1j * ( -0.5*dpsi_dx2 + V*psi )
+
+
+    def fock_evolution(self, dt):
+        # Обновляем коэффициенты с учетом времени dt
+        new_coefficients = np.zeros_like(self.coefficients, dtype=complex)
         
-        return psi
+        for n in range(self.num_states):
+            # Фазовый множитель для каждого уровня энергии
+            phase = np.exp(-1j * (n + 0.5) * self.frequency * dt)
+            new_coefficients[n] = self.coefficients[n] * phase
+        
+        self.current_time += dt 
+        self.coefficients = new_coefficients
+        self.reconstruct_wavefunction()
 
 
     def compute_coherent_coefficient(self, alpha):
